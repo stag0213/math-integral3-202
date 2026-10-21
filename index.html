@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>線分PQの掃引曲面｜3次元可視化</title>
+<style>
+  :root { color-scheme: light; --ink:#172033; --muted:#5d687b; --line:#d9e0ea; --panel:#ffffff; --bg:#f3f6fb; --accent:#1769aa; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",sans-serif; color:var(--ink); background:var(--bg); }
+  header { padding:18px 22px 12px; background:#fff; border-bottom:1px solid var(--line); }
+  h1 { font-size:clamp(1.2rem,2.6vw,1.8rem); margin:0 0 6px; }
+  header p { margin:0; color:var(--muted); font-size:.94rem; }
+  main { display:grid; grid-template-columns:minmax(0,1fr) 310px; gap:14px; padding:14px; max-width:1500px; margin:auto; }
+  #viewWrap { min-height:520px; height:calc(100vh - 150px); max-height:850px; position:relative; background:#fff; border:1px solid var(--line); border-radius:14px; overflow:hidden; }
+  canvas { display:block; width:100%; height:100%; touch-action:none; }
+  .hint { position:absolute; left:12px; bottom:10px; padding:7px 10px; border-radius:8px; background:#ffffffdf; color:#536074; font-size:.82rem; pointer-events:none; }
+  aside { display:flex; flex-direction:column; gap:12px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:15px; }
+  .card h2 { margin:0 0 12px; font-size:1rem; }
+  .control { margin:12px 0; }
+  .control label { display:flex; justify-content:space-between; gap:10px; font-weight:600; font-size:.9rem; margin-bottom:7px; }
+  input[type=range] { width:100%; accent-color:var(--accent); }
+  .buttons { display:flex; flex-wrap:wrap; gap:7px; }
+  button { border:1px solid #c8d2df; border-radius:9px; padding:8px 10px; background:#fff; color:var(--ink); font:inherit; cursor:pointer; }
+  button:hover { background:#edf5fc; }
+  button.primary { background:#1769aa; border-color:#1769aa; color:#fff; }
+  .check { display:flex; align-items:center; gap:8px; margin:9px 0; font-size:.9rem; }
+  .check input { accent-color:var(--accent); }
+  .formula { background:#f5f8fc; padding:10px; border-radius:9px; overflow-wrap:anywhere; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:.84rem; line-height:1.65; }
+  .legend { display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:.83rem; }
+  .legend span::before { content:""; display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; background:var(--c); }
+  .small { font-size:.82rem; color:var(--muted); line-height:1.5; }
+  #status { font-variant-numeric:tabular-nums; font-weight:650; }
+  @media(max-width:850px) { main { grid-template-columns:1fr; } #viewWrap { height:60vh; min-height:400px; } aside { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>線分 PQ の掃引曲面 — 3次元可視化</h1>
+  <p>A(2,0,0), B(0,2,0), C(0,0,2), D(1,1,0), E(0,0,1) と、P(p,0,0) を表示します。</p>
+</header>
+<main>
+  <section id="viewWrap" aria-label="3次元表示">
+    <canvas id="scene"></canvas>
+    <div class="hint">ドラッグ：回転　／　ホイール：拡大・縮小　／　右ドラッグ：平行移動</div>
+  </section>
+  <aside>
+    <section class="card">
+      <h2>点 P と線分 PQ</h2>
+      <div class="control">
+        <label for="pRange"><span>パラメータ p</span><output id="pOut">1.00</output></label>
+        <input id="pRange" type="range" min="0" max="2" step="0.01" value="1">
+      </div>
+      <div id="status">P(1.00, 0, 0)　Q(0, 1.00, 1.00)</div>
+      <div class="buttons" style="margin-top:12px">
+        <button id="play" class="primary">▶ アニメーション</button>
+        <button id="resetP">p = 1 に戻す</button>
+      </div>
+      <div class="control">
+        <label for="tRange"><span>線分上の点 R</span><output id="tOut">0.50</output></label>
+        <input id="tRange" type="range" min="0" max="1" step="0.01" value="0.5">
+      </div>
+      <div class="small">R = (1−t)P + tQ。t を動かして、線分上の点を確認できます。</div>
+    </section>
+    <section class="card">
+      <h2>表示設定</h2>
+      <label class="check"><input id="showSurface" type="checkbox" checked> 掃引曲面を表示</label>
+      <label class="check"><input id="showVolume" type="checkbox" checked> 平面 x=0・z=0 と曲面で囲まれる領域を表示</label>
+      <label class="check"><input id="showLines" type="checkbox" checked> 掃引した線分を表示</label>
+      <label class="check"><input id="showLabels" type="checkbox" checked> 点の名前・座標軸を表示</label>
+      <label class="check"><input id="showTriangle" type="checkbox" checked> 三角形 BCD を表示</label>
+      <div class="buttons" style="margin-top:12px">
+        <button id="resetView">視点をリセット</button>
+        <button id="clearLines">軌跡を消去</button>
+      </div>
+    </section>
+    <section class="card">
+      <h2>パラメータ表示</h2>
+      <div class="formula">
+        P = (p, 0, 0)<br>
+        Q = (0, p, 2−p)<br>
+        R = (p(1−t), pt, (2−p)t)<br>
+        0 ≤ p ≤ 2,　0 ≤ t ≤ 1
+      </div>
+      <p class="small">p を変化させたときの線分 PQ の集合を、パラメータ曲面として描画します。これは内部を塗りつぶした立体ではなく、2次元の掃引曲面です。</p>
+      <div class="legend">
+        <span style="--c:#1769aa">掃引曲面</span>
+        <span style="--c:#8b5cf6">囲まれた領域</span>
+        <span style="--c:#e4572e">現在の PQ</span>
+        <span style="--c:#16a085">P・Q・R</span>
+        <span style="--c:#6b7280">基準点 A〜E</span>
+      </div>
+    </section>
+  </aside>
+</main>
+<script>
+(() => {
+  const canvas = document.getElementById('scene');
+  const ctx = canvas.getContext('2d');
+  const $ = id => document.getElementById(id);
+  const pRange = $('pRange'), tRange = $('tRange');
+  let yaw = -0.72, pitch = 0.48, zoom = 1, panX = 0, panY = 0;
+  let dragging = false, panning = false, lastX = 0, lastY = 0;
+  let anim = false, animDir = 1, lastTime = 0, history = [];
+  const points = {
+    A:[2,0,0], B:[0,2,0], C:[0,0,2], D:[1,1,0], E:[0,0,1]
+  };
+  const colors = {surface:'#1769aa', line:'#e4572e', point:'#16a085', base:'#6b7280'};
+  const dot3 = (a,b) => a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+  const cross = (a,b) => [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+  const sub = (a,b) => [a[0]-b[0],a[1]-b[1],a[2]-b[2]];
+  const add = (a,b) => [a[0]+b[0],a[1]+b[1],a[2]+b[2]];
+  const mul = (a,s) => a.map(v=>v*s);
+  function getPQ(p) { return {P:[p,0,0], Q:[0,p,2-p]}; }
+  function getR(p,t) { const {P,Q}=getPQ(p); return add(mul(P,1-t),mul(Q,t)); }
+  function resize() {
+    const r = canvas.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio||1,2);
+    canvas.width = Math.max(1,Math.round(r.width*dpr)); canvas.height = Math.max(1,Math.round(r.height*dpr));
+    ctx.setTransform(dpr,0,0,dpr,0,0); draw();
+  }
+  function project(v) {
+    const [x,y,z]=v;
+    const cy=Math.cos(yaw), sy=Math.sin(yaw), cp=Math.cos(pitch), sp=Math.sin(pitch);
+    const x1=x*cy-y*sy, y1=x*sy+y*cy;
+    const y2=y1*cp-z*sp, z2=y1*sp+z*cp;
+    const scale=Math.min(canvas.clientWidth,canvas.clientHeight)*0.205*zoom;
+    return {x:canvas.clientWidth/2+panX+x1*scale,y:canvas.clientHeight/2+panY-y2*scale,depth:z2};
+  }
+  function line3(a,b,color,width=1,dash=[]) {
+    const A=project(a), B=project(b);
+    ctx.beginPath(); ctx.setLineDash(dash); ctx.moveTo(A.x,A.y); ctx.lineTo(B.x,B.y);
+    ctx.strokeStyle=color; ctx.lineWidth=width; ctx.stroke(); ctx.setLineDash([]);
+  }
+  function polygon3(verts,fill,stroke=null,width=1) {
+    const pts=verts.map(project); ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y);
+    pts.slice(1).forEach(p=>ctx.lineTo(p.x,p.y)); ctx.closePath();
+    ctx.fillStyle=fill; ctx.fill(); if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=width;ctx.stroke();}
+  }
+  function point3(v,color,r=4) {
+    const q=project(v); ctx.beginPath(); ctx.arc(q.x,q.y,r,0,Math.PI*2);
+    ctx.fillStyle=color; ctx.fill(); ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke();
+  }
+  function label3(v,text,color='#273449',dx=7,dy=-8) {
+    const q=project(v); ctx.font='600 12px system-ui,sans-serif'; ctx.lineWidth=3;
+    ctx.strokeStyle='#ffffff'; ctx.strokeText(text,q.x+dx,q.y+dy);
+    ctx.fillStyle=color; ctx.fillText(text,q.x+dx,q.y+dy);
+  }
+  function drawGrid() {
+    for(let i=-1;i<=3;i++) {
+      line3([i,-1,0],[i,3,0],i===0?'#9aa8ba':'#e4e9f0',i===0?1.5:1);
+      line3([-1,i,0],[3,i,0],i===0?'#9aa8ba':'#e4e9f0',i===0?1.5:1);
+      line3([i,0,-1],[i,0,3],'#edf0f5',1);
+      line3([0,i,-1],[0,i,3],'#edf0f5',1);
+    }
+    line3([-0.35,0,0],[2.7,0,0],'#d94841',2);
+    line3([0,-0.35,0],[0,2.7,0],'#218c62',2);
+    line3([0,0,-0.35],[0,0,2.7],'#2878c7',2);
+    if($('showLabels').checked) {
+      label3([2.7,0,0],'x','#d94841'); label3([0,2.7,0],'y','#218c62'); label3([0,0,2.7],'z','#2878c7');
+    }
+  }
+  function drawSurface() {
+    if(!$('showSurface').checked) return;
+    const n=50,m=35;
+    for(let i=0;i<n;i++) {
+      const p0=2*i/n,p1=2*(i+1)/n;
+      for(let j=0;j<m;j++) {
+        const t0=j/m,t1=(j+1)/m;
+        const v=[getR(p0,t0),getR(p1,t0),getR(p1,t1),getR(p0,t1)];
+        polygon3(v,'rgba(23,105,170,0.12)','rgba(23,105,170,0.10)',0.5);
+      }
+    }
+    // Parameter grid curves: fixed p and fixed t
+    for(let i=0;i<=20;i++) {
+      const p=2*i/20;
+      for(let j=0;j<24;j++) line3(getR(p,j/24),getR(p,(j+1)/24),'rgba(23,105,170,0.48)',0.8);
+    }
+    for(let j=0;j<=12;j++) {
+      const t=j/12;
+      for(let i=0;i<50;i++) line3(getR(2*i/50,t),getR(2*(i+1)/50,t),'rgba(23,105,170,0.32)',0.8);
+    }
+  }
+  
+  function surfaceZ(x,y) {
+    const d=x+y;
+    if(d < 1e-6) return 0;
+    return Math.max(0, Math.min(2, 2*y/d-y));
+  }
+  function drawVolume() {
+    if(!$('showVolume').checked) return;
+    // Cross sections are bounded by x=0, z=0, and the swept surface.
+    // Triangulated volume slices: x in [0, 2-y], y in [0,2].
+    const ny=36, nx=32, nz=12;
+    for(let iy=0;iy<ny;iy++) {
+      const y0=2*iy/ny, y1=2*(iy+1)/ny;
+      for(let ix=0;ix<nx;ix++) {
+        const u0=ix/nx, u1=(ix+1)/nx;
+        const x00=(2-y0)*u0, x01=(2-y0)*u1;
+        const x10=(2-y1)*u0, x11=(2-y1)*u1;
+        const z00=surfaceZ(x00,y0), z01=surfaceZ(x01,y0);
+        const z10=surfaceZ(x10,y1), z11=surfaceZ(x11,y1);
+        // Top boundary surface
+        polygon3([[x00,y0,z00],[x01,y0,z01],[x11,y1,z11],[x10,y1,z10]],'rgba(139,92,246,0.16)','rgba(109,40,217,0.10)',0.35);
+        // Side wall along x=0 and the x+y=2 edge
+        polygon3([[x00,y0,0],[x01,y0,0],[x01,y0,z01],[x00,y0,z00]],'rgba(139,92,246,0.07)');
+        polygon3([[x10,y1,0],[x11,y1,0],[x11,y1,z11],[x10,y1,z10]],'rgba(139,92,246,0.07)');
+      }
+    }
+    // z=0 base region in xy plane, bounded by x=0 and x+y=2
+    polygon3([[0,0,0],[2,0,0],[0,2,0]],'rgba(139,92,246,0.10)','#8b5cf6',1);
+    // x=0 side boundary surface
+    for(let i=0;i<40;i++) {
+      const y0=2*i/40, y1=2*(i+1)/40;
+      const z0=surfaceZ(0,y0), z1=surfaceZ(0,y1);
+      polygon3([[0,y0,0],[0,y1,0],[0,y1,z1],[0,y0,z0]],'rgba(139,92,246,0.10)','#8b5cf6',0.35);
+    }
+  }
+  function draw() {
+    const w=canvas.clientWidth,h=canvas.clientHeight;
+    if(!w||!h) return;
+    ctx.clearRect(0,0,w,h); ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h);
+    drawGrid();
+    // Base reference triangle BCD
+    if($('showTriangle').checked) polygon3([points.B,points.C,points.D],'rgba(107,114,128,0.08)','#aab4c2',1);
+    drawVolume();
+    drawSurface();
+    if($('showLines').checked) {
+      // accumulated sampled line segments
+      history.forEach(p=>{const {P,Q}=getPQ(p); line3(P,Q,'rgba(228,87,46,0.18)',1);});
+    }
+    const p=Number(pRange.value),t=Number(tRange.value),{P,Q}=getPQ(p),R=getR(p,t);
+    line3(P,Q,colors.line,3.2);
+    line3(P,R,'#16a085',1.8,[4,3]);
+    Object.entries(points).forEach(([name,v])=>{
+      point3(v,colors.base,4);
+      if($('showLabels').checked) label3(v,`${name}(${v.join(',')})`);
+    });
+    point3(P,colors.point,5); point3(Q,colors.point,5); point3(R,'#16a085',5);
+    if($('showLabels').checked) { label3(P,'P','#087f68',7,15); label3(Q,'Q','#087f68',7,15); label3(R,'R','#087f68',7,-10); }
+    $('pOut').textContent=p.toFixed(2); $('tOut').textContent=t.toFixed(2);
+    $('status').textContent=`P(${p.toFixed(2)}, 0, 0)　Q(0, ${p.toFixed(2)}, ${(2-p).toFixed(2)})`;
+  }
+  pRange.addEventListener('input',()=>{ const p=Number(pRange.value); if(history.length===0||Math.abs(history[history.length-1]-p)>0.025) history.push(p); if(history.length>180)history.shift(); draw(); });
+  tRange.addEventListener('input',draw);
+  ['showSurface','showVolume','showLines','showLabels','showTriangle'].forEach(id=>$(id).addEventListener('change',draw));
+  $('resetP').addEventListener('click',()=>{pRange.value=1;tRange.value=.5;history=[];draw();});
+  $('clearLines').addEventListener('click',()=>{history=[];draw();});
+  $('resetView').addEventListener('click',()=>{yaw=-.72;pitch=.48;zoom=1;panX=0;panY=0;draw();});
+  $('play').addEventListener('click',()=>{anim=!anim;$('play').textContent=anim?'❚❚ 一時停止':'▶ アニメーション'; if(anim)requestAnimationFrame(tick);});
+  function tick(time) {
+    if(!anim)return;
+    if(!lastTime)lastTime=time;
+    const dt=Math.min((time-lastTime)/1000,.05); lastTime=time;
+    let p=Number(pRange.value)+animDir*dt*.45;
+    if(p>=2){p=2;animDir=-1;} if(p<=0){p=0;animDir=1;}
+    pRange.value=p;
+    if(history.length===0||Math.abs(history[history.length-1]-p)>0.025)history.push(p);
+    if(history.length>180)history.shift();
+    draw(); requestAnimationFrame(tick);
+  }
+  canvas.addEventListener('pointerdown',e=>{dragging=true;panning=e.button===2||e.shiftKey;lastX=e.clientX;lastY=e.clientY;canvas.setPointerCapture(e.pointerId);});
+  canvas.addEventListener('pointermove',e=>{if(!dragging)return;const dx=e.clientX-lastX,dy=e.clientY-lastY;lastX=e.clientX;lastY=e.clientY;if(panning){panX+=dx;panY+=dy;}else{yaw+=dx*.008;pitch=Math.max(-1.45,Math.min(1.45,pitch+dy*.008));}draw();});
+  canvas.addEventListener('pointerup',()=>dragging=false);
+  canvas.addEventListener('pointercancel',()=>dragging=false);
+  canvas.addEventListener('contextmenu',e=>e.preventDefault());
+  canvas.addEventListener('wheel',e=>{e.preventDefault();zoom=Math.max(.35,Math.min(3.5,zoom*Math.exp(-e.deltaY*.001)));draw();},{passive:false});
+  window.addEventListener('resize',resize);
+  resize();
+})();
+</script>
+</body>
+</html>
